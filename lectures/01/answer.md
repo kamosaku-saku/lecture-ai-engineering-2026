@@ -8,7 +8,7 @@
 
 ## 宿題
 
-- 取り組んだレベル：基礎 / 実装 / 発展
-- やったこと：
-- 結果：
-- 気づき・疑問：
+- 取り組んだレベル：基礎
+- やったこと：モデル、temperatureの違いによる出力の比較を行った。(gemini-3.5-flash-lite, temperature=0.0)、(gemini-3.5-flash-lite, temperature=0.7)、(gemini-3.5-flash, temperature=0.7)の三パターンで試した。
+- 結果：temperatureが高いほど、砕けた表現（「すごい」など）を使う傾向があった。また、gemini-3.5-flashは推論時間がgemini-3.5-flash-liteよりも長く、出力もより詳細なものになった。
+- 気づき・疑問：モデル、temperatureの違いが出力の質に違いを生む。
