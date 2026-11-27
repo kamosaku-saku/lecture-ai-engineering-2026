@@ -45,6 +45,13 @@ uv run python -m app.agent --trace "LoRAとQLoRAの違いは？"
 uv run python -m app.agent --graph --trace "LoRAとQLoRAの違いは？"
 ```
 
+通常はベクトル検索の上位5ページだけを返します。前後1ページも取得する場合は、実行時に `AIE_RAG_NEIGHBORS=1` を設定します。追加ページは検索結果の後ろに並び、検索器単体の出力では「前後ページ追加」と表示されます。未設定または `0` なら従来どおりです。
+
+```bash
+AIE_RAG_NEIGHBORS=1 uv run python -m app.retrieval "LoRA QLoRA 違い"
+AIE_RAG_NEIGHBORS=1 uv run python -m app.agent --trace "LoRAとQLoRAの違いは？"
+```
+
 教材本文や埋め込み設定を変更した場合は、実験用のDBを作ります。`AIE_RAG_DB` を設定したターミナルでは、作成と検索の両方がそのパスを使います。
 
 ```bash

@@ -16,7 +16,7 @@ import sqlite_vec
 
 from app.config import (
     EMBEDDING_DIMENSIONS, EMBEDDING_MAX_TOKENS, EMBEDDING_MODEL,
-    RAG_DB, RAG_DOCUMENT_IDS, RAG_SOURCE, RAG_TOP_K, RAG_TREE, get_api_key,
+    RAG_DB, RAG_DOCUMENT_IDS, RAG_NEIGHBORS, RAG_SOURCE, RAG_TOP_K, RAG_TREE, get_api_key,
     RAG_GRAPH, GRAPH_START_K, GRAPH_HOPS, GRAPH_MAX_RESULTS,
 )
 
@@ -108,6 +108,37 @@ def embed_text(text: str, task_type: str) -> list[float]:
     return normalized_vector(embedding.values)
 
 
+def _append_neighbor_pages(db: sqlite3.Connection, results: list[dict]) -> list[dict]:
+    """検索ヒットの前後1ページを、同一資料内に限って重複なく末尾へ加える。"""
+    neighbor_keys = []
+    for hit in results:
+        for page_number in (hit["page"] - 1, hit["page"] + 1):
+            if page_number > 0:
+                neighbor_keys.append((hit["document_id"], page_number))
+    neighbor_keys = list(dict.fromkeys(neighbor_keys))
+    if not neighbor_keys:
+        return results
+
+    conditions = " OR ".join("(document_id = ? AND page = ?)" for _ in neighbor_keys)
+    params = [value for key in neighbor_keys for value in key]
+    rows = db.execute(f"""
+        SELECT page_id, document_id, lecture, document_title, section, title, page, content,
+               NULL AS distance
+        FROM chunks WHERE {conditions}
+    """, params)
+    pages = {(row["document_id"], row["page"]): dict(row) for row in rows}
+
+    seen_page_ids = {hit["page_id"] for hit in results}
+    for key in neighbor_keys:
+        page = pages.get(key)
+        if page is None or page["page_id"] in seen_page_ids:
+            continue
+        page["retrieval_source"] = "neighbor"
+        results.append(page)
+        seen_page_ids.add(page["page_id"])
+    return results
+
+
 @contextmanager
 def open_index(path: Path):
     """既存の検索DBを読み取り専用で開き、終了時に閉じる。"""
@@ -135,7 +166,10 @@ def search(query: str) -> list[dict]:
                    vec_distance_cosine(embedding, ?) AS distance
             FROM chunks ORDER BY distance, page_id LIMIT ?
         """, (sqlite_vec.serialize_float32(vector), RAG_TOP_K))
-        return [dict(row) for row in rows]
+        results = [dict(row) for row in rows]
+        if RAG_NEIGHBORS:
+            return _append_neighbor_pages(db, results)
+        return results
 
 
 def search_graph(query: str) -> dict:
@@ -151,7 +185,10 @@ def search_graph(query: str) -> dict:
             adjacent[a].add(b)
             adjacent[b].add(a)
 
-    seeds = [hit for hit in search(query) if hit["page_id"] in pages][:min(GRAPH_START_K, GRAPH_MAX_RESULTS)]
+    seeds = [
+        hit for hit in search(query)
+        if hit.get("retrieval_source") != "neighbor" and hit["page_id"] in pages
+    ][:min(GRAPH_START_K, GRAPH_MAX_RESULTS)]
     seed_ids = {seed["page_id"] for seed in seeds}
     results, candidates = [], {}
     for rank, seed in enumerate(seeds):
@@ -203,7 +240,8 @@ if __name__ == "__main__":
     parser.add_argument("query", help="調べたい内容")
     args = parser.parse_args()
     for i, result in enumerate(search(args.query), 1):
-        print(f"\n{'=' * 60}\n検索結果 {i}\n{'=' * 60}")
+        source = "（前後ページ追加）" if result.get("retrieval_source") == "neighbor" else ""
+        print(f"\n{'=' * 60}\n検索結果 {i}{source}\n{'=' * 60}")
         print(f"講義: {result['document_title']}")
         print(f"章: {result['section']}")
         print(f"タイトル: {result['title']}")
